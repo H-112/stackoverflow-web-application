@@ -7,7 +7,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.sql.*;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -352,93 +351,96 @@ public class DatabaseService implements AutoCloseable {
              Statement stmt = conn.createStatement()) {
             // 保持原有的建表SQL不变
             stmt.executeUpdate("""
-                    create table if not exists owner (
-                       account_id int primary key,
-                       user_id int not null,
-                       profile_image text,
-                       link text not null,
-                       user_type text not null,
-                       display_name text not null,
-                       reputation int not null
+                     create table if not exists "owner" (
+                        account_id int primary key,
+                        user_id int not null,
+                        profile_image text,
+                        link text not null,
+                        user_type text not null,
+                        display_name text not null,
+                        reputation int not null
+                      );
+                      create table if not exists question (
+                          question_id int primary key,
+                          score int not null,
+                          link text not null,
+                          answer_count int not null,
+                          view_count int not null,
+                          content_license text,
+                          title text not null,
+                          last_activity_date timestamp not null,
+                          last_edit_date timestamp,
+                          creation_date timestamp not null,
+                          account_id int not null,
+                          body text not null
+                          -- foreign key (account_id) references owner(account_id)
+                      );
+                      create table if not exists answer(
+                          answer_id int primary key,
+                          last_activity_date timestamp not null,
+                          last_edit_date timestamp,
+                          creation_date timestamp not null,
+                          score int not null,
+                          is_accepted bool not null,
+                          content_license text,
+                          question_id int not null,
+                          body text not null,
+                          account_id int not null
+                          -- foreign key (question_id) references question(question_id),
+                          -- foreign key (account_id) references owner(account_id)
+                      );
+                      create table if not exists comment (
+                          comment_id int primary key,
+                          edited bool not null,
+                          post_id int not null,
+                          body text not null,
+                          creation_date timestamp not null,
+                          score int not null,
+                          content_license text,
+                          account_id int not null
+                          -- foreign key (account_id) references owner(account_id)
+                          -- foreign key (post_id) references answer(answer_id)
                      );
-                     create table if not exists question (
-                         question_id int primary key,
-                         score int not null,
-                         link text not null,
-                         answer_count int not null,
-                         view_count int not null,
-                         content_license text,
-                         title text not null,
-                         last_activity_date timestamp not null,
-                         last_edit_date timestamp,
-                         creation_date timestamp not null,
-                         account_id int not null,
-                         body text not null,
-                         foreign key (account_id) references owner(account_id)
-                     );
-                     create table if not exists answer(
-                         answer_id int primary key,
-                         last_activity_date timestamp not null,
-                         last_edit_date timestamp,
-                         creation_date timestamp not null,
-                         score int not null,
-                         is_accepted bool not null,
-                         content_license text,
-                         question_id int not null,
-                         body text not null,
-                         account_id int not null,
-                         foreign key (question_id) references question(question_id),
-                         foreign key (account_id) references owner(account_id)
-                     );
-                     create table if not exists comment (
-                         comment_id int primary key,
-                         edited bool not null,
-                         post_id int not null,
-                         body text not null,
-                         creation_date timestamp not null,
-                         score int not null,
-                         content_license text,
-                         account_id int not null,
-                         foreign key (account_id) references owner(account_id),
-                         foreign key (post_id) references  answer(answer_id)
-                     );
-                     create table if not exists tag (
-                         tag_name text primary key
-                     );
-                     create table if not exists api(
-                         api_name text primary key
-                     );
-                     create table if not exists connection_tag_and_question (
-                         tag_name text not null,
-                         question_id int not null,
-                         foreign key (tag_name) references tag (tag_name),
-                         foreign key (question_id) references question(question_id)
-                     );
-                     create table if not exists connection_question_and_api (
-                         question_id int not null,
-                         api_name text not null,
-                         count int not null,
-                         foreign key (question_id) references question(question_id),
-                         foreign key (api_name) references api(api_name)
-                     );
-                     create table if not exists connection_answer_and_api(
-                         answer_id int not null,
-                         api_name text not null,
-                         count int not null,
-                         foreign key (answer_id) references answer(answer_id),
-                         foreign key (api_name) references api(api_name)
-                     );
-                     create table if not exists connection_comment_and_api(
-                         comment_id int not null,
-                         api_name text not null,
-                         count int not null,
-                         foreign key (comment_id) references comment(comment_id),
-                         foreign key (api_name) references api(api_name)
-                     );\\
-                     create table if not exists last_update(
-                         last_update_time timestamp not null
-                     );""\");
-                    """);
+                      create table if not exists tag (
+                          tag_name text primary key
+                      );
+                      create table if not exists api(
+                          api_name text primary key
+                      );
+                      create table if not exists connection_tag_and_question (
+                          tag_name text not null,
+                          question_id int not null
+                         -- foreign key (tag_name) references tag (tag_name)
+                          -- foreign key (tag_name) references tag (tag_name)
+                      -- foreign key (question_id) references question(question_id)
+                         );
+                      create table if not exists connection_question_and_api (
+                          question_id int not null,
+                          api_name text not null,
+                          count int not null
+                          -- foreign key (question_id) references question(question_id),
+                          -- foreign key (question_id) references question(question_id)
+                      -- foreign key (api_name) references api(api_name)
+                    );
+                      create table if not exists connection_answer_and_api(
+                          answer_id int not null,
+                          api_name text not null,
+                          count int not null
+                         -- foreign key (answer_id) references answer(answer_id)
+                          -- foreign key (answer_id) references answer(answer_id)
+                      -- foreign key (api_name) references api(api_name)
+                      );
+                      create table if not exists connection_comment_and_api(
+                          comment_id int not null,
+                          api_name text not null,
+                          count int not null
+                          -- foreign key (comment_id) references comment(comment_id)
+                          -- foreign key (api_name) references api(api_name)
+                      );
+                      create table if not exists last_update(
+                          last_update_time timestamp not null
+                      );
+                     """);
         }
     }
 
@@ -468,19 +470,6 @@ public class DatabaseService implements AutoCloseable {
         T apply(Connection connection) throws SQLException;
     }
 
-    public void disableForeignKeyCheck() throws SQLException {
-        try (Connection conn = dataSource.getConnection();
-             Statement statement = conn.createStatement()) {
-            statement.execute("SET session_replication_role = replica;");
-        }
-    }
-
-    public void enableForeignKeyCheck() throws SQLException {
-        try (Connection conn = dataSource.getConnection();
-             Statement statement = conn.createStatement()) {
-            statement.execute("SET session_replication_role = DEFAULT;");
-        }
-    }
     public void executeWithoutForeignKeyCheck(Runnable action) throws SQLException {
         try (Connection conn = dataSource.getConnection()) {
             try {
@@ -489,6 +478,7 @@ public class DatabaseService implements AutoCloseable {
                 // 禁用外键检查
                 try (Statement stmt = conn.createStatement()) {
                     stmt.execute("SET session_replication_role = replica;");
+                    logger.info("Disabled foreign key check");
                 }
 
                 // 执行操作
@@ -497,6 +487,7 @@ public class DatabaseService implements AutoCloseable {
                 // 重新启用外键检查
                 try (Statement stmt = conn.createStatement()) {
                     stmt.execute("SET session_replication_role = DEFAULT;");
+                    logger.info("Enabled foreign key check");
                 }
 
                 conn.commit();

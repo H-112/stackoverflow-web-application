@@ -1,11 +1,6 @@
 package cn.edu.sustech.service;
 
-import cn.edu.sustech.entity.Answer;
-import cn.edu.sustech.entity.AnswerApiCount;
-import cn.edu.sustech.entity.Comment;
-import cn.edu.sustech.entity.CommentApiCount;
-import cn.edu.sustech.entity.Question;
-import cn.edu.sustech.entity.QuestionApiCount;
+import cn.edu.sustech.entity.*;
 import cn.edu.sustech.mapper.AnswerMapper;
 import cn.edu.sustech.mapper.CommentMapper;
 import cn.edu.sustech.mapper.QuestionMapper;
@@ -13,11 +8,12 @@ import cn.edu.sustech.mapper.api.AnswerApiMapper;
 import cn.edu.sustech.mapper.api.CommentApiMapper;
 import cn.edu.sustech.mapper.api.QuestionApiMapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Service;
 
 @Service
 public class ApiService {

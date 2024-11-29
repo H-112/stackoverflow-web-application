@@ -5,16 +5,11 @@
 </template>
 
 <script>
-import { use } from "echarts/core";
-import { CanvasRenderer } from "echarts/renderers";
-import { PieChart } from "echarts/charts";
-import {
-  TitleComponent,
-  TooltipComponent,
-  LegendComponent, ToolboxComponent
-} from "echarts/components";
+import {use} from "echarts/core";
+import {CanvasRenderer} from "echarts/renderers";
+import {PieChart} from "echarts/charts";
+import {LegendComponent, TitleComponent, ToolboxComponent, TooltipComponent} from "echarts/components";
 import VChart from 'vue-echarts';
-import { ref } from 'vue';
 
 export default {
   name: "PieChart",

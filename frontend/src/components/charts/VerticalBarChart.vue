@@ -7,17 +7,11 @@
 <script>
 
 
-import {ref} from "vue";
 import VChart from "vue-echarts";
 import {use} from "echarts/core";
 import {CanvasRenderer} from "echarts/renderers";
 import {BarChart} from "echarts/charts";
-import {
-  GridComponent,
-  TitleComponent,
-  ToolboxComponent,
-  TooltipComponent
-} from "echarts/components";
+import {GridComponent, TitleComponent, ToolboxComponent, TooltipComponent} from "echarts/components";
 
 export default {
   name: "VerticalBarChart",

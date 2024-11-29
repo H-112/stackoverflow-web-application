@@ -2,6 +2,7 @@ package cn.edu.sustech.entity;
 
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
+
 import java.util.Date;
 
 @TableName("last_update")

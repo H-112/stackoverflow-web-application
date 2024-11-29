@@ -40,6 +40,7 @@ public class ApiClient {
                     throw new ApiException("API request failed with code: " + response.code());
                 }
 
+                assert response.body() != null;
                 String responseBody = response.body().string();
                 JSONObject data = JSON.parseObject(responseBody);
 
@@ -51,8 +52,6 @@ public class ApiClient {
                 if (data.containsKey("error")) {
                     throw new ApiException("API error: " + data.getJSONObject("error").getString("message"));
                 }
-                response.close();
-
                 return data;
 
             } catch (IOException | ApiException e) {
@@ -61,14 +60,20 @@ public class ApiClient {
                 }
                 logger.warn("Request failed (attempt {}/{}), retrying...", attempt, ApiConfig.MAX_RETRY_ATTEMPTS);
                 try {
-                    Thread.sleep((long) ApiConfig.RETRY_DELAY_MS * (int) Math.max(64, Math.pow(2, attempt)));
+                    // 指数退避算法，重试延迟时间逐渐增加，最大 64 秒
+                    Thread.sleep((long) ApiConfig.RETRY_DELAY_MS * (int) Math.min(64, Math.pow(2, attempt)));
                 } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
                     throw new ApiException("Request interrupted", ie);
                 }
+
                 logger.info("Retrying request to {}", url);
                 logger.info("request: {}", request);
                 logger.info("response: {}", response);
+            } finally {
+                if (response != null) {
+                    response.close();
+                }
             }
         }
         throw new ApiException("Failed to execute request after all retries");

@@ -26,8 +26,7 @@ import NoAnswerPercentage from "@/components/data-containers/NoAnswerPercentage.
 import AverageMaxAnswer from "@/components/data-containers/AverageMaxAnswer.vue";
 import AnswerDistribution from "@/components/data-containers/AnswerDistribution.vue";
 import QuesionWithAcceptedAnswer from "@/components/data-containers/QuestionWithAcceptedAnswer.vue";
-import ResolutionTimeDistribution
-  from "@/components/data-containers/ResolutionTimeDistribution.vue";
+import ResolutionTimeDistribution from "@/components/data-containers/ResolutionTimeDistribution.vue";
 import BetterAnswerThanAccepted from "@/components/data-containers/BetterAnswerThanAccepted.vue";
 import FrequentTag from "@/components/data-containers/FrequentTag.vue";
 import TagUpvotes from "@/components/data-containers/TagUpvotes.vue";
@@ -37,6 +36,7 @@ import UserAnswerParticipation from "@/components/data-containers/UserAnswerPart
 import UserCommentParticipation from "@/components/data-containers/UserCommentParticipation.vue";
 import ActiveUser from "@/components/data-containers/ActiveUser.vue";
 import ApiCount from "@/components/data-containers/ApiCount.vue";
+
 export default {
   name: "ContentComponent",
   components: {

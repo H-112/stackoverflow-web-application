@@ -14,8 +14,8 @@ public class CrawlerMain {
     private static final String SQL_DATABASE = "stackoverflow";
     private static final int SQL_PORT = 5432;
 
-    private static final int BATCH_SIZE = 1000;
-    private static final int THREAD_POOL_SIZE = 5;
+    private static final int PAGE_SIZE = 100;
+    private static final int PAGE_STEP = 100;
 
     private static final Logger logger = LoggerFactory.getLogger(CrawlerMain.class);
 
@@ -24,7 +24,7 @@ public class CrawlerMain {
         try (DatabaseService databaseService = new DatabaseService(
                 SQL_HOST, SQL_PORT, SQL_USER, SQL_PASSWORD, SQL_DATABASE)) {
 
-            DataCollector dataCollector = new DataCollector(databaseService, BATCH_SIZE, THREAD_POOL_SIZE);
+            DataCollector dataCollector = new DataCollector(databaseService, PAGE_SIZE, PAGE_STEP);
             databaseService.createTables();
 
             // 在禁用外键检查的状态下执行数据收集

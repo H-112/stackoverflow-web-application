@@ -9,12 +9,7 @@
 import {use} from "echarts/core";
 import {CanvasRenderer} from "echarts/renderers";
 import {LineChart} from "echarts/charts";
-import {
-  DataZoomComponent,
-  GridComponent,
-  TitleComponent, ToolboxComponent,
-  TooltipComponent
-} from "echarts/components";
+import {DataZoomComponent, GridComponent, TitleComponent, ToolboxComponent, TooltipComponent} from "echarts/components";
 import VChart from "vue-echarts";
 
 

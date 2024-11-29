@@ -40,10 +40,19 @@ public class StackOverflowService {
             return new ArrayList<>();
         }
 
-        String ids = String.join(";", questionIds.stream().map(String::valueOf).toArray(String[]::new));
-        String params = "filter=withbody&order=desc&sort=activity";
-        JSONObject response = apiClient.executeRequest("questions/" + ids + "/answers", params);
-        return extractItems(response);
+        // 直到has_more为false
+        List<JSONObject> answers = new ArrayList<>();
+        int page = 1;
+        JSONObject response;
+        do {
+            String ids = String.join(";", questionIds.stream().map(String::valueOf).toArray(String[]::new));
+            String params = String.format("page=%d&pagesize=%d&filter=withbody&order=desc&sort=activity",
+                    page++, pageSize);
+            response = apiClient.executeRequest("questions/" + ids + "/answers", params);
+            answers.addAll(extractItems(response));
+        } while (response.getBoolean("has_more"));
+
+        return answers;
     }
 
     public List<JSONObject> getComments(String type, List<Integer> ids) {
@@ -51,12 +60,19 @@ public class StackOverflowService {
             return new ArrayList<>();
         }
 
-        String idsStr = String.join(";", ids.stream().map(String::valueOf).toArray(String[]::new));
-        String endpoint = type.equals("question") ? "questions/" : "answers/";
-        String params = "filter=withbody&order=desc&sort=creation";
+        List<JSONObject> comments = new ArrayList<>();
+        int page = 1;
+        JSONObject response;
+        do {
+            String idsStr = String.join(";", ids.stream().map(String::valueOf).toArray(String[]::new));
+            String endpoint = type.equals("question") ? "questions/" : "answers/";
+            String params = String.format("page=%d&pagesize=%d&filter=withbody&order=desc&sort=creation",
+                    page++, pageSize);
+            response = apiClient.executeRequest(endpoint + idsStr + "/comments", params);
+            comments.addAll(extractItems(response));
+        } while (response.getBoolean("has_more"));
 
-        JSONObject response = apiClient.executeRequest(endpoint + idsStr + "/comments", params);
-        return extractItems(response);
+        return comments;
     }
 
     private List<JSONObject> extractItems(JSONObject response) {

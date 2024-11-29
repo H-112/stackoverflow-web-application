@@ -5,14 +5,15 @@ import cn.edu.sustech.entity.Tag;
 import cn.edu.sustech.entity.TagConnect;
 import cn.edu.sustech.service.QuestionService;
 import cn.edu.sustech.service.TagService;
-import java.util.*;
-import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.*;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/tag")

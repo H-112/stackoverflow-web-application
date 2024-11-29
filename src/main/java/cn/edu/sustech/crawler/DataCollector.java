@@ -4,7 +4,6 @@ import com.alibaba.fastjson.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.List;
@@ -159,7 +158,7 @@ public class DataCollector {
 
             if (questionIds.size() == 100) {
                 logger.info("Collecting answers for question: {}, progress: {}%", question.getInteger("question_id"),
-                        (int) (100.0 * questionList.indexOf(question) / questionList.size()));
+                        (100.0 * questionList.indexOf(question) / questionList.size()));
                 processAnswerBatch(questionIds);
                 questionIds.clear();
             }
@@ -208,7 +207,7 @@ public class DataCollector {
                     );
                 }
             }
-            logger.info("Collecting question comments - Progress: {}%", (int) (100.0 * i / questionIds.size()));
+            logger.info("Collecting question comments - Progress: {}%",  (100.0 * i / questionIds.size()));
         }
 
         // Collect answer comments
@@ -230,7 +229,7 @@ public class DataCollector {
                     );
                 }
             }
-            logger.info("Collecting answer comments - Progress: {}%", (int) (100.0 * i / questionIds.size()));
+            logger.info("Collecting answer comments - Progress: {}%",  (100.0 * i / questionIds.size()));
         }
         logger.info("Comments collection completed, total comments: {}", commentList.size());
     }
