@@ -1,397 +1,259 @@
 package cn.edu.sustech.crawler;
 
-import com.alibaba.fastjson.JSON;
-import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
-import java.io.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.sql.SQLException;
 import java.sql.Timestamp;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
-import org.apache.http.HttpEntity;
-import org.apache.http.client.methods.CloseableHttpResponse;
-import org.apache.http.client.methods.HttpGet;
-import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.impl.client.HttpClients;
-import org.apache.http.util.EntityUtils;
+import java.util.stream.Collectors;
 
 public class DataCollector {
-    private int pageSize; // 分页获取数据时每页的大小 [1, 100]
-    private int pageStep; // 分页获取数据时每次获取所隔的页数
-    private final List<JSONObject> questionList; // 获取问题JSON列表
-    private final List<JSONObject> answerList;  // 获取回答JSON列表
-    private final List<JSONObject> commentList; // 获取评论JSON列表
-    private int totalQuestions; // 当前StackOverflow上的问题总数（用来衡量数据爬取的普适性）
-    private int NoAnsQuestionTotal; // 当前StackOverflow上的无回答问题总数（计算比例，用来衡量数据爬取的普适性）
-    private final DatabaseService databaseService; // 数据库服务
+    private static final Logger logger = LoggerFactory.getLogger(DataCollector.class);
 
-    private Timestamp lastRefreshTime; // 上次刷新时间
+    private final StackOverflowService stackOverflowService;
+    private final DatabaseService databaseService;
+    private final CollectionProgress progress;
 
-    public Timestamp getLastRefreshTime() {  // 获取上次刷新时间
-        return lastRefreshTime;
-    }
+    // 存储采集到的数据
+    private final List<JSONObject> questionList = new ArrayList<>();
+    private final List<JSONObject> answerList = new ArrayList<>();
+    private final List<JSONObject> commentList = new ArrayList<>();
 
-    public void setPageSize(int pageSize) {
-        this.pageSize = pageSize;
-    } // 设置每页大小
-    public void setPageStep(int pageStep) {
-        this.pageStep = pageStep;
-    } // 设置每次获取所隔的页数
-    public DataCollector (DatabaseService databaseService, int pageSize, int pageStep) throws IOException {
-        // 自定义每页大小和每次获取所隔的页数
+    // 配置参数
+    private final int pageSize;
+    private final int pageStep;
+
+    // 统计信息
+    private int totalQuestions;
+    private int noAnswerQuestions;
+    private Timestamp lastRefreshTime;
+
+    public DataCollector(DatabaseService databaseService, int pageSize, int pageStep) {
         this.databaseService = databaseService;
-        questionList = new ArrayList<>();
-        answerList = new ArrayList<>();
-        commentList = new ArrayList<>();
         this.pageSize = pageSize;
         this.pageStep = pageStep;
+        this.stackOverflowService = new StackOverflowService(pageSize);
+        this.progress = CollectionProgress.loadProgress();
         refresh();
     }
-    public void refresh() throws IOException {
-        // 刷新数据，主要更新问题总数和无回答问题总数
-        String url = "https://api.stackexchange.com/2.3/questions";
-        String params = "filter=total&tagged=java&site=stackoverflow&key=gqjiH6ExBbic7NaMoFxC)w((";
-        String apiURL = url + "?" + params;
-        CloseableHttpClient httpClient = HttpClients.createDefault();
-        HttpGet httpGet = new HttpGet(apiURL);
-        CloseableHttpResponse response = httpClient.execute(httpGet);
-        HttpEntity entity = response.getEntity();
-        if (entity != null) {
-            String responseBody = EntityUtils.toString(entity);
-            JSONObject data = JSON.parseObject(responseBody);
-            totalQuestions = data.getInteger("total");
+
+    public void refresh() {
+        try {
+            JSONObject questionStats = stackOverflowService.getQuestionStats();
+            JSONObject noAnswerStats = stackOverflowService.getNoAnswerStats();
+
+            this.totalQuestions = questionStats.getInteger("total");
+            this.noAnswerQuestions = noAnswerStats.getInteger("total");
+            this.lastRefreshTime = new Timestamp(System.currentTimeMillis());
+
+        } catch (ApiException e) {
+            logger.error("Failed to refresh statistics", e);
+            throw e;
         }
-        response.close();
-        httpClient.close();
-        url = "https://api.stackexchange.com/2.3/questions/no-answers";
-        params = "filter=total&tagged=java&site=stackoverflow&key=gqjiH6ExBbic7NaMoFxC)w((";
-        apiURL = url + "?" + params;
-        httpClient = HttpClients.createDefault();
-        httpGet = new HttpGet(apiURL);
-        response = httpClient.execute(httpGet);
-        entity = response.getEntity();
-        if (entity != null) {
-            String responseBody = EntityUtils.toString(entity);
-            JSONObject data = JSON.parseObject(responseBody);
-            NoAnsQuestionTotal = data.getInteger("total");
-        }
-        response.close();
-        httpClient.close();
-        lastRefreshTime = new Timestamp(System.currentTimeMillis());
-    }
-    public int getTotalQuestions() throws IOException {
-        // 获取stackOverflow上准确的问题总数
-        return totalQuestions;
-    }
-    public int getNoAnsQuestionTotal() throws IOException {
-        // 获取stackOverflow上准确的无回答问题总数
-        return NoAnsQuestionTotal;
     }
 
-    public double getNoAnsPercent() throws IOException {
-        // 获取stackOverflow上准确的无回答问题比例
-        totalQuestions = getTotalQuestions();
-        NoAnsQuestionTotal = getNoAnsQuestionTotal();
-        return (double) NoAnsQuestionTotal / totalQuestions;
+    public void collectData() {
+        logger.info("Starting data collection");
+        try {
+            // 更新总体统计信息
+            JSONObject stats = stackOverflowService.getQuestionStats();
+            progress.updateStatistics(
+                    stats.getInteger("total"),
+                    stackOverflowService.getNoAnswerStats().getInteger("total"),
+                    calculateTotalPages(stats.getInteger("total"))
+            );
+
+            // 根据状态选择开始方式
+            if (progress.getState() == CollectionState.NOT_STARTED ||
+                    progress.getState() == CollectionState.FAILED) {
+                startNewCollection();
+            } else {
+                resumeCollection();
+            }
+
+        } catch (Exception e) {
+            logger.error("Collection failed", e);
+            progress.setState(CollectionState.FAILED);
+            throw e;
+        }
     }
-    public List<JSONObject> getCommentsFromAnswer(String ids) {
-        // 获取每个回答的评论，ids为answer_id的字符串，以分号分隔
-        List<JSONObject> jsonObjectList = new ArrayList<>();
-        int page = 1;
-        while (true) {
-            String url = "https://api.stackexchange.com/2.3/answers/" + ids + "/comments";
-            String params = String.format("page=%d&pagesize=%d&filter=withbody&order=desc&sort=creation&site=stackoverflow&key=gqjiH6ExBbic7NaMoFxC)w((", page, pageSize);
-            String apiURL = url + "?" + params;
-            info(apiURL);
-            CloseableHttpClient httpClient = HttpClients.createDefault();
-            HttpGet httpGet = new HttpGet(apiURL);
+
+    private void startNewCollection() {
+        logger.info("Starting new collection");
+        progress.setState(CollectionState.COLLECTING_QUESTIONS);
+        collectQuestions();
+        collectAnswers();
+        collectComments();
+        saveToDatabase();
+    }
+
+    private void resumeCollection() {
+        logger.info("Resuming collection from state: {}", progress.getState());
+        CollectionState currentState = progress.getState();
+
+        switch (currentState) {
+            case COLLECTING_QUESTIONS:
+                collectQuestions();
+                collectAnswers();
+                collectComments();
+                saveToDatabase();
+                break;
+
+            case COLLECTING_ANSWERS:
+                collectAnswers();
+                collectComments();
+                saveToDatabase();
+                break;
+
+            case COLLECTING_QUESTION_COMMENTS:
+            case COLLECTING_ANSWER_COMMENTS:
+                collectComments();
+                saveToDatabase();
+                break;
+
+            case SAVING_TO_DATABASE:
+                saveToDatabase();
+                break;
+
+            default:
+                logger.warn("Unexpected state: {}, starting fresh", currentState);
+                startNewCollection();
+        }
+    }
+
+    private void collectQuestions() {
+        progress.setState(CollectionState.COLLECTING_QUESTIONS);
+        int pageTotal = totalQuestions / pageSize;
+        int startPage = progress.getLastProcessedPage() + 1;
+
+        for (int page = startPage; page <= pageTotal; page += pageStep) {
+            logger.info("Collecting questions - Progress: {}%", (int) (100.0 * page / pageTotal));
             try {
-                CloseableHttpResponse response = httpClient.execute(httpGet);
-                HttpEntity entity = response.getEntity();
-                if (entity != null) {
-                    String responseBody = EntityUtils.toString(entity);
-                    JSONObject data = JSON.parseObject(responseBody);
-                    jsonObjectList.add(data);
-                    if (!data.getBoolean("has_more")) {
-                        break; // 获取所有评论数据
+                List<JSONObject> questions = stackOverflowService.getQuestions(page);
+                for (JSONObject question : questions) {
+                    int questionId = question.getInteger("question_id");
+                    if (!questionList.contains(question)) {
+                        questionList.add(question);
+                        progress.recordQuestionProgress(questionId, question);
                     }
                 }
-                response.close();
-                httpClient.close();
-            } catch (IOException e) {
-                e.printStackTrace();
+                progress.setLastProcessedPage(page);
+            } catch (Exception e) {
+                logger.error("Error collecting questions at page {}", page, e);
+                throw e;
             }
-            page++;
         }
-        return jsonObjectList;
-    }
-    public List<JSONObject> getCommentsFromQuestion(String ids) {
-        // 获取每个问题的评论，ids为question_id的字符串，以分号分隔
-        List<JSONObject> jsonObjectList = new ArrayList<>();
-        int page = 1;
-        while (true) {
-            String url = "https://api.stackexchange.com/2.3/questions/" + ids + "/comments";
-            String params = String.format("page=%d&pagesize=%d&filter=withbody&order=desc&sort=creation&site=stackoverflow&key=gqjiH6ExBbic7NaMoFxC)w((", page, pageSize);
-            String apiURL = url + "?" + params;
-            CloseableHttpClient httpClient = HttpClients.createDefault();
-            HttpGet httpGet = new HttpGet(apiURL);
-            try {
-                CloseableHttpResponse response = httpClient.execute(httpGet);
-                HttpEntity entity = response.getEntity();
-                if (entity != null) {
-                    String responseBody = EntityUtils.toString(entity);
-                    JSONObject data = JSON.parseObject(responseBody);
-                    jsonObjectList.add(data);
-                    if (!data.getBoolean("has_more")) {
-                        break; // 获取所有评论数据
-                    }
-                }
-                response.close();
-                httpClient.close();
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-            page++;
-        }
-        return jsonObjectList;
-    }
-    public List<JSONObject> getAnswers(String ids) {
-        // 获取每个问题的回答，ids为question_id的字符串，以分号分隔
-        List<JSONObject> jsonObjectList = new ArrayList<>();
-        int page = 1;
-        while (true) {
-            String url = "https://api.stackexchange.com/2.3/questions/" + ids + "/answers";
-            String params = String.format("page=%d&pagesize=%d&filter=withbody&order=desc&sort=activity&site=stackoverflow&key=gqjiH6ExBbic7NaMoFxC)w((", page, pageSize);
-            String apiURL = url + "?" + params;
-            CloseableHttpClient httpClient = HttpClients.createDefault();
-            HttpGet httpGet = new HttpGet(apiURL);
-            try {
-                CloseableHttpResponse response = httpClient.execute(httpGet);
-                HttpEntity entity = response.getEntity();
-                if (entity != null) {
-                    String responseBody = EntityUtils.toString(entity);
-                    JSONObject data = JSON.parseObject(responseBody);
-                    jsonObjectList.add(data);
-                    if (!data.getBoolean("has_more")) break; // 获取所有回答数据
-                }
-                response.close();
-                httpClient.close();
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-            page++;
-        }
-        return jsonObjectList;
-    }
-    public void collectData() throws IOException, SQLException {
-        // 数据爬取
-        int pageTotal = totalQuestions / pageSize; // 设置总页数
-        for (int i = 1; i <= pageTotal; i += pageStep) {
-            // 按照activity排序，获取每隔pageStep页的pageSize个问题
-            String redColorCode = "\u001B[31m";
-            String resetColorCode = "\u001B[0m";
-            info(redColorCode + "获取所有提问数据ing：" + (int)(100 * ((double)i / pageTotal)) + "%" + resetColorCode);
-            String url = "https://api.stackexchange.com/2.3/questions";
-            String params = String.format("page=%d&pagesize=%d&order=desc&sort=activity&tagged=java&filter=withbody&site=stackoverflow&key=gqjiH6ExBbic7NaMoFxC)w((", i, pageSize);
-            String apiURL = url + "?" + params;
-            CloseableHttpClient httpClient = HttpClients.createDefault();
-            HttpGet httpGet = new HttpGet(apiURL);
-            CloseableHttpResponse response = httpClient.execute(httpGet);
-            HttpEntity entity = response.getEntity();
-            if (entity != null) {
-                String responseBody = EntityUtils.toString(entity);
-                JSONObject data = JSON.parseObject(responseBody);
-                if (data.getJSONArray("items") == null) continue;
-                for (int j = 0; j < pageSize; j++) {
-                    JSONObject item = data.getJSONArray("items").getJSONObject(j);
-                    questionList.add(item);
-                }
-            }
-            response.close();
-            httpClient.close();
-        }
-        // 获取每个问题的回答
-        List<Integer> currentQuestionIdList = new ArrayList<>();
-        List<Integer> answerIdList = new ArrayList<>();
-        for (int i = 0; i < questionList.size(); i++) {
-            if (i % 100 == 0 && i > 0) {
-                String redColorCode = "\u001B[31m";
-                String resetColorCode = "\u001B[0m";
-                info(redColorCode + "获取所有回答数据ing：" + (int)(100 * ((double)i / questionList.size())) + "%" + resetColorCode);
-                StringBuilder ids = new StringBuilder();
-                for (int j = 0; j < currentQuestionIdList.size(); j++) {
-                    ids.append(currentQuestionIdList.get(j));
-                    if (j != currentQuestionIdList.size() - 1) {
-                        ids.append(";");
-                    }
-                }
-                List<JSONObject> jsonObjectList = getAnswers(ids.toString());
-                for (JSONObject jsonObject : jsonObjectList) {
-                    JSONArray answers = jsonObject.getJSONArray("items");
-                    for (int j = 0; j < answers.size(); j++) {
-                        JSONObject item = answers.getJSONObject(j);
-                        if (item != null) {
-                            answerList.add(item);
-                            answerIdList.add(item.getInteger("answer_id"));
-                        }
-                    }
-                }
-                currentQuestionIdList.clear();
-            }
-            JSONObject item = questionList.get(i);
-            int questionId = item.getInteger("question_id");
-            currentQuestionIdList.add(questionId);
-        }
-        if (currentQuestionIdList.size() > 0) {
-            StringBuilder ids = new StringBuilder();
-            for (int j = 0; j < currentQuestionIdList.size(); j++) {
-                ids.append(currentQuestionIdList.get(j));
-                if (j != currentQuestionIdList.size() - 1) {
-                    ids.append(";");
-                }
-            }
-            List<JSONObject> jsonObjectList = getAnswers(ids.toString());
-            for (JSONObject jsonObject: jsonObjectList) {
-                JSONArray answers = jsonObject.getJSONArray("items");
-                for (int j = 0; j < answers.size(); j++) {
-                    JSONObject item = answers.getJSONObject(j);
-                    if (item != null) {
-                        answerList.add(item);
-                        answerIdList.add(item.getInteger("answer_id"));
-                    }
-                }
-            }
-            currentQuestionIdList.clear();
-        }
-        // 查询每个问题的评论
-        for (int i = 0; i < questionList.size(); i++) {
-            if (i % 100 == 0 && i > 0) {
-                String redColorCode = "\u001B[31m";
-                String resetColorCode = "\u001B[0m";
-                info(redColorCode + "获取所有问题评论数据ing：" + (int)(100 * ((double)i / questionList.size())) + "%" + resetColorCode);
-                StringBuilder ids = new StringBuilder();
-                for (int j = 0; j < currentQuestionIdList.size(); j++) {
-                    ids.append(currentQuestionIdList.get(j));
-                    if (j != currentQuestionIdList.size() - 1) {
-                        ids.append(";");
-                    }
-                }
-                List<JSONObject> jsonObjectList = getCommentsFromQuestion(ids.toString());
-                for (JSONObject jsonObject: jsonObjectList) {
-                    JSONArray answers = jsonObject.getJSONArray("items");
-                    for (int j = 0; j < answers.size(); j++) {
-                        JSONObject item = answers.getJSONObject(j);
-                        if (item != null) {
-                            commentList.add(item);
-                        }
-                    }
-                }
-                currentQuestionIdList.clear();
-            }
-            JSONObject item = questionList.get(i);
-            int questionId = item.getInteger("question_id");
-            currentQuestionIdList.add(questionId);
-        }
-        if (currentQuestionIdList.size() > 0) {
-            StringBuilder ids = new StringBuilder();
-            for (int j = 0; j < currentQuestionIdList.size(); j++) {
-                ids.append(currentQuestionIdList.get(j));
-                if (j != currentQuestionIdList.size() - 1) {
-                    ids.append(";");
-                }
-            }
-            List<JSONObject> jsonObjectList = getCommentsFromQuestion(ids.toString());
-            for (JSONObject jsonObject: jsonObjectList) {
-                JSONArray answers = jsonObject.getJSONArray("items");
-                for (int j = 0; j < answers.size(); j++) {
-                    JSONObject item = answers.getJSONObject(j);
-                    if (item != null) {
-                        commentList.add(item);
-                    }
-                }
-            }
-            currentQuestionIdList.clear();
-        }
-
-        // 获取每个回答的评论
-        List<Integer> currentAnswerIdList = new ArrayList<>();
-        for (int i = 0; i < answerIdList.size(); i++) {
-            if (i % 100 == 0 && i > 0) {
-                String redColorCode = "\u001B[31m";
-                String resetColorCode = "\u001B[0m";
-                info(redColorCode + "获取所有评论数据ing：" + (int)(100 * ((double)i / answerIdList.size())) + "%" + resetColorCode);
-                StringBuilder ids = new StringBuilder();
-                for (int j = 0; j < currentAnswerIdList.size(); j++) {
-                    ids.append(currentAnswerIdList.get(j));
-                    if (j != currentAnswerIdList.size() - 1) {
-                        ids.append(";");
-                    }
-                }
-                List<JSONObject> jsonObjectList = getCommentsFromAnswer(ids.toString());
-                for (JSONObject jsonObject: jsonObjectList) {
-                    JSONArray answers = jsonObject.getJSONArray("items");
-                    for (int j = 0; j < answers.size(); j++) {
-                        JSONObject item = answers.getJSONObject(j);
-                        if (item != null) commentList.add(item);
-                    }
-                }
-                currentAnswerIdList.clear();
-            }
-            JSONObject item = answerList.get(i);
-            int answerId = item.getInteger("answer_id");
-            currentAnswerIdList.add(answerId);
-        }
-        if (currentAnswerIdList.size() > 0) {
-            String ids = "";
-            for (int j = 0; j < currentAnswerIdList.size(); j++) {
-                ids += currentAnswerIdList.get(j);
-                if (j != currentAnswerIdList.size() - 1) {
-                    ids += ";";
-                }
-            }
-            List<JSONObject> jsonObjectList = getCommentsFromAnswer(ids);
-            for (JSONObject jsonObject: jsonObjectList) {
-                JSONArray answers = jsonObject.getJSONArray("items");
-                for (int j = 0; j < answers.size(); j++) {
-                    JSONObject item = answers.getJSONObject(j);
-                    if (item != null) commentList.add(item);
-                }
-            }
-            currentAnswerIdList.clear();
-        }
-        info("爬取Question总数：" + questionList.size());
-        info("爬取Answer总数：" + answerList.size());
-        info("爬取Comment总数：" + commentList.size());
-        // 将数据插入数据库
-        String redColorCode = "\u001B[31m";
-        String resetColorCode = "\u001B[0m";
-        info(redColorCode + "数据插入数据库" + resetColorCode);
-        for (int i = 0; i < questionList.size(); i++) {
-            JSONObject questionItem = questionList.get(i);
-            databaseService.insertQuestionRecord(questionItem);
-        }
-        info(redColorCode + "Question已经插入数据库!" + resetColorCode);
-        for (int i = 0; i < answerList.size(); i++) {
-            JSONObject answerItem = answerList.get(i);
-            databaseService.insertAnswerRecord(answerItem);
-        }
-        info(redColorCode + "Answer已经插入数据库!" + resetColorCode);
-        for (int i = 0; i < commentList.size(); i++) {
-            JSONObject commentItem = commentList.get(i);
-            databaseService.insertCommentRecord(commentItem);
-        }
-        info(redColorCode + "Comment已经插入数据库!" + resetColorCode);
-        info(redColorCode + "数据插入数据库完成！" + resetColorCode);
-        databaseService.insertUpdateTime();
-        info(redColorCode + "更新时间已经插入数据库！" + resetColorCode);
-    }
-    
-    private static void info(String message) {
-        //System out message with formatted time prefix
-        System.out.printf("[%s] %s%n", LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")), message);
+        logger.info("Questions collection completed, total questions: {}", questionList.size());
     }
 
+    private void collectAnswers() {
+        progress.setState(CollectionState.COLLECTING_ANSWERS);
+        List<Integer> questionIds = new ArrayList<>();
 
+        for (JSONObject question : questionList) {
+            int questionId = question.getInteger("question_id");
+            questionIds.add(questionId);
+
+            if (questionIds.size() == 100) {
+                logger.info("Collecting answers for question: {}, progress: {}%", question.getInteger("question_id"),
+                        (int) (100.0 * questionList.indexOf(question) / questionList.size()));
+                processAnswerBatch(questionIds);
+                questionIds.clear();
+            }
+        }
+
+        if (!questionIds.isEmpty()) {
+            processAnswerBatch(questionIds);
+        }
+        logger.info("Answers collection completed, total answers: {}", answerList.size());
+    }
+
+    private void processAnswerBatch(List<Integer> questionIds) {
+        try {
+            List<JSONObject> answers = stackOverflowService.getAnswers(questionIds);
+            for (JSONObject answer : answers) {
+                int answerId = answer.getInteger("answer_id");
+                int questionId = answer.getInteger("question_id");
+                if (!answerList.contains(answer)) {
+                    answerList.add(answer);
+                    progress.recordAnswerProgress(questionId, answerId, answer);
+                }
+            }
+        } catch (Exception e) {
+            logger.error("Error collecting answers for questions: {}", questionIds, e);
+            throw e;
+        }
+    }
+
+    private void collectComments() {
+        // Collect question comments
+        progress.setState(CollectionState.COLLECTING_QUESTION_COMMENTS);
+        List<Integer> questionIds = questionList.stream()
+                .map(q -> q.getInteger("question_id"))
+                .collect(Collectors.toList());
+
+        for (int i = 0; i < questionIds.size(); i += 100) {
+            List<Integer> batch = questionIds.subList(i, Math.min(i + 100, questionIds.size()));
+            List<JSONObject> comments = stackOverflowService.getComments("question", batch);
+            for (JSONObject comment : comments) {
+                if (!commentList.contains(comment)) {
+                    commentList.add(comment);
+                    progress.recordCommentProgress(
+                            comment.getInteger("post_id"),
+                            true,
+                            comment
+                    );
+                }
+            }
+            logger.info("Collecting question comments - Progress: {}%", (int) (100.0 * i / questionIds.size()));
+        }
+
+        // Collect answer comments
+        progress.setState(CollectionState.COLLECTING_ANSWER_COMMENTS);
+        List<Integer> answerIds = answerList.stream()
+                .map(a -> a.getInteger("answer_id"))
+                .collect(Collectors.toList());
+
+        for (int i = 0; i < answerIds.size(); i += 100) {
+            List<Integer> batch = answerIds.subList(i, Math.min(i + 100, answerIds.size()));
+            List<JSONObject> comments = stackOverflowService.getComments("answer", batch);
+            for (JSONObject comment : comments) {
+                if (!commentList.contains(comment)) {
+                    commentList.add(comment);
+                    progress.recordCommentProgress(
+                            comment.getInteger("post_id"),
+                            false,
+                            comment
+                    );
+                }
+            }
+            logger.info("Collecting answer comments - Progress: {}%", (int) (100.0 * i / questionIds.size()));
+        }
+        logger.info("Comments collection completed, total comments: {}", commentList.size());
+    }
+
+    private void saveToDatabase() {
+        progress.setState(CollectionState.SAVING_TO_DATABASE);
+        logger.info("Saving data to database");
+
+        try {
+            databaseService.saveToDatabase(questionList, answerList, commentList);
+            progress.setState(CollectionState.COMPLETED);
+            logger.info("Data collection completed successfully");
+        } catch (Exception e) {
+            logger.error("Database save failed", e);
+            throw new ApiException("Failed to save to database", e);
+        }
+    }
+
+    private int calculateTotalPages(Integer total) {
+        return (int) Math.ceil((double) total / pageSize);
+    }
+
+    public double getNoAnswerPercent() {
+        return (double) noAnswerQuestions / totalQuestions;
+    }
 }
